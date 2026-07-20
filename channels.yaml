@@ -1,0 +1,24 @@
+# TikTok to YouTube Channel Pairs
+
+channels:
+  - id: channel_7
+    tiktok_username: "official_yeetfeet"
+    youtube_channel_name: "official_yeetfeet"
+    # No fixed_title — the TikTok caption is used as the YouTube title.
+    google_credentials_file: "credentials/channel_7_client_secret.json"
+    oauth_token_file: "tokens/channel_7_token.json"
+    videos_per_day: 2
+    description_footer: ""
+    default_tags:
+      - yeetfeet
+      - viral
+      - trending
+    youtube_category_id: "22"
+    enabled: true
+    max_retry_days: 7
+    shorts_max_seconds: 180
+    upload_mode: short_only
+    # Newest unposted video is always picked first (latest-first priority).
+    slot_publish_times_utc:
+      1: "15:00"   # PUBLIC at 8 PM PKT (UTC+5) — USA audience
+      2: "17:00"   # PUBLIC at 10 PM PKT (UTC+5)
