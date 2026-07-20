@@ -40,12 +40,18 @@ logger = logging.getLogger(__name__)
 #   3. Any clean combined format (non-mp4 fallback)
 #   4. Best mp4 (no explicit filter — play still wins via preference score)
 #   5. Absolute fallback
+# EVERY fallback requires vcodec!=none. Without that, a TikTok photo/slideshow
+# post (which has only an audio track, and is sometimes served under a /video/
+# URL so the /photo/ filter misses it) falls through to the audio-only format:
+# yt-dlp then "succeeds" writing a .mp3 and the caller finds no video file.
+# Requiring a video stream makes such posts fail cleanly so the candidate loop
+# can skip to the next video.
 _WATERMARK_FREE_FORMAT = (
     "bestvideo[format_id^=play][ext=mp4]+bestaudio"
-    "/best[format_id^=play][ext=mp4]"
-    "/best[format_id^=play]"
-    "/best[ext=mp4]"
-    "/best"
+    "/best[format_id^=play][ext=mp4][vcodec!=none]"
+    "/best[format_id^=play][vcodec!=none]"
+    "/best[ext=mp4][vcodec!=none]"
+    "/best[vcodec!=none]"
 )
 
 

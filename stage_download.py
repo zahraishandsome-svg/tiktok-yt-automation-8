@@ -52,16 +52,35 @@ for f in STAGING.glob(f"slot{args.slot}.*"):
     f.unlink()
 
 upload_mode = channel.get("upload_mode", "short_only")
-video = _pick_next_video(channel, args.slot, upload_mode, exclude_ids=set())
-if video is None:
-    log.info("No unposted videos available for slot %d â€” nothing to stage.", args.slot)
-    sys.exit(0)
+max_candidates = int(channel.get("max_download_candidates", 8))
 
-log.info("Selected video %s | '%s'", video["id"], video.get("title", ""))
-local_file = _download_with_retry(channel, video, dry_run=False)
-if local_file is None:
-    log.error("Download failed for %s", video["id"])
+# Multi-candidate loop: some TikToks can't be downloaded (photo/slideshow posts
+# have no video stream - sometimes served under a /video/ URL so the /photo/
+# filter misses them - or a post is temporarily IP-blocked). Skip past those so
+# the slot still gets a video instead of failing the whole run.
+tried = set()
+video = None
+local_file = None
+while len(tried) < max_candidates:
+    candidate = _pick_next_video(channel, args.slot, upload_mode, exclude_ids=tried)
+    if candidate is None:
+        break
+    tried.add(candidate["id"])
+    log.info("Trying candidate %d/%d: %s | '%s'",
+             len(tried), max_candidates, candidate["id"], candidate.get("title", ""))
+    f = _download_with_retry(channel, candidate, dry_run=False)
+    if f is not None:
+        video, local_file = candidate, f
+        break
+    log.warning("Candidate %s not downloadable (photo post / blocked) - trying next.",
+                candidate["id"])
+
+if video is None or local_file is None:
+    log.error("No downloadable video found for slot %d after %d candidate(s).",
+              args.slot, len(tried))
     sys.exit(1)
+
+log.info("Staging video %s | '%s'", video["id"], video.get("title", ""))
 
 short = is_short_video(
     duration=video.get("duration"),
