@@ -61,30 +61,34 @@ def _norm_caption(s: str) -> str:
     return _re.sub(r"\s+", " ", s).strip()
 
 
+_YT_CAPTION_MAX = 1000   # safety cap on how many uploads to scan
+
+
 def _recent_youtube_captions(channel: Dict[str, Any]) -> Optional[set]:
     """
-    Fetch normalized captions of the newest `youtube_dedup_recent` uploads on the
-    channel (via its uploads playlist). Returns a set, or None if the feature is
-    off or the fetch fails (in which case uploading proceeds normally).
-    Cached per process so it's fetched once per run.
+    Fetch normalized captions of ALL uploads on the channel (via its uploads
+    playlist) so a TikTok caption is checked against every video already posted.
+    Optional `youtube_dedup_recent` caps the count; default is all (up to
+    _YT_CAPTION_MAX). Returns a set, or None if the feature is off or the fetch
+    fails (uploading then proceeds normally). Cached per process (once per run).
     """
-    n = channel.get("youtube_dedup_recent")
     playlist = channel.get("youtube_uploads_playlist")
-    if not n or not playlist:
+    if not playlist:
         return None
     key = channel["id"]
     if key in _YT_CAPTION_CACHE:
         return _YT_CAPTION_CACHE[key]
+    n = int(channel.get("youtube_dedup_recent") or _YT_CAPTION_MAX)
     caps: Optional[set] = None
     try:
         import yt_dlp
         opts = {"quiet": True, "no_warnings": True, "extract_flat": True,
-                "skip_download": True, "playlistend": int(n)}
+                "skip_download": True, "playlistend": n}
         with yt_dlp.YoutubeDL(opts) as y:
             info = y.extract_info(f"https://www.youtube.com/playlist?list={playlist}",
                                   download=False)
         caps = {c for e in (info.get("entries") or []) if (c := _norm_caption(e.get("title")))}
-        logger.info("[%s] Caption dedup: loaded %d recent YouTube captions", key, len(caps))
+        logger.info("[%s] Caption dedup: loaded %d YouTube channel captions", key, len(caps))
     except Exception as exc:  # noqa: BLE001 — never block uploads on a dedup fetch
         logger.warning("[%s] Caption dedup: could not load YouTube captions (%s) — "
                        "proceeding without the check", key, exc)
