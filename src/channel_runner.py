@@ -47,6 +47,67 @@ class TikTokUnreachableError(Exception):
     """Raised when the TikTok profile fetch fails after all retries."""
 
 
+# ── Caption dedup against the live YouTube channel (opt-in per channel) ──────────
+import re as _re
+import unicodedata as _ud
+
+_YT_CAPTION_CACHE: Dict[str, Optional[set]] = {}   # per-process, per-channel
+
+
+def _norm_caption(s: str) -> str:
+    """Lowercase, strip emojis/punctuation/hashes — keep alphanumerics + spaces."""
+    s = _ud.normalize("NFKC", s or "").lower()
+    s = _re.sub(r"[^a-z0-9 ]+", " ", s)
+    return _re.sub(r"\s+", " ", s).strip()
+
+
+def _recent_youtube_captions(channel: Dict[str, Any]) -> Optional[set]:
+    """
+    Fetch normalized captions of the newest `youtube_dedup_recent` uploads on the
+    channel (via its uploads playlist). Returns a set, or None if the feature is
+    off or the fetch fails (in which case uploading proceeds normally).
+    Cached per process so it's fetched once per run.
+    """
+    n = channel.get("youtube_dedup_recent")
+    playlist = channel.get("youtube_uploads_playlist")
+    if not n or not playlist:
+        return None
+    key = channel["id"]
+    if key in _YT_CAPTION_CACHE:
+        return _YT_CAPTION_CACHE[key]
+    caps: Optional[set] = None
+    try:
+        import yt_dlp
+        opts = {"quiet": True, "no_warnings": True, "extract_flat": True,
+                "skip_download": True, "playlistend": int(n)}
+        with yt_dlp.YoutubeDL(opts) as y:
+            info = y.extract_info(f"https://www.youtube.com/playlist?list={playlist}",
+                                  download=False)
+        caps = {c for e in (info.get("entries") or []) if (c := _norm_caption(e.get("title")))}
+        logger.info("[%s] Caption dedup: loaded %d recent YouTube captions", key, len(caps))
+    except Exception as exc:  # noqa: BLE001 — never block uploads on a dedup fetch
+        logger.warning("[%s] Caption dedup: could not load YouTube captions (%s) — "
+                       "proceeding without the check", key, exc)
+        caps = None
+    _YT_CAPTION_CACHE[key] = caps
+    return caps
+
+
+def _caption_already_on_youtube(video: Dict[str, Any], caps: set) -> bool:
+    """True if this TikTok's caption matches one already on the channel. Handles
+    YouTube title truncation via prefix comparison against title AND description."""
+    for cand in (video.get("title"), video.get("description")):
+        vn = _norm_caption(cand)
+        if not vn:
+            continue
+        if vn in caps:
+            return True
+        for c in caps:
+            if len(c) >= 15 and (vn.startswith(c) or c.startswith(vn)):
+                return True
+    return False
+
+
 def run_channel(channel: Dict[str, Any], slot: int, dry_run: bool = False) -> Dict[str, Any]:
     """
     Full pipeline for one channel, one slot.
@@ -217,6 +278,25 @@ def run_channel(channel: Dict[str, Any], slot: int, dry_run: bool = False) -> Di
 def _run_short_only(channel, video, slot, run_id, dry_run, result):
     """Original behaviour — unchanged."""
     channel_id = channel["id"]
+
+    # Caption dedup (opt-in per channel): before uploading, check this TikTok's
+    # caption against the captions already on the YouTube channel (the newest N
+    # uploads). If it's already there — e.g. the user posted it manually — skip
+    # this one and let the candidate loop try the next video. Self-correcting: it
+    # uses the live channel state, no pre-scan of the whole catalog needed.
+    caps = _recent_youtube_captions(channel)
+    if caps is not None and _caption_already_on_youtube(video, caps):
+        logger.info("[%s] Caption already on YouTube — skipping %s (dedup): '%s'",
+                    channel_id, video["id"], (video.get("title") or "")[:50])
+        if not dry_run:
+            db.mark_uploaded(channel_id, video["id"], "already_on_yt", format_type="short",
+                             tiktok_url=video.get("url"), tiktok_title=video.get("title"),
+                             tiktok_timestamp=video.get("timestamp"))
+        db.finish_run(run_id, "skipped")
+        result["status"] = "failed"
+        result["retry_next_candidate"] = True
+        result["error"] = "already on youtube (caption dedup)"
+        return
 
     local_file = _download_with_retry(channel, video, dry_run)
     if local_file is None:
