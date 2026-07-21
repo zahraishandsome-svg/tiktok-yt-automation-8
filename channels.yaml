@@ -17,8 +17,10 @@ channels:
     enabled: true
     max_retry_days: 7
     shorts_max_seconds: 180
-    upload_mode: short_only
-    # Newest unposted video is always picked first (latest-first priority).
+    upload_mode: popular_split
+    # Slot 1 = newest unposted TikTok. Slot 2 = most-VIEWED unposted TikTok
+    # (across the whole profile). Both upload as Shorts.
+    max_download_candidates: 8
     slot_publish_times_utc:
       1: "15:00"   # PUBLIC at 8 PM PKT (UTC+5) — USA audience
       2: "17:00"   # PUBLIC at 10 PM PKT (UTC+5)
