@@ -1,0 +1,68 @@
+name: Dedup existing uploads - Channel 7
+
+on:
+  workflow_dispatch:
+    inputs:
+      newest:
+        description: "How many newest YouTube uploads to dedup"
+        required: false
+        default: "27"
+
+concurrency:
+  group: dedup-channel_7
+  cancel-in-progress: false
+
+env:
+  DB_PAGE_ID: channel_7
+
+jobs:
+  dedup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run dedup
+        run: |
+          python dedup_uploads.py \
+            --channel channel_7 \
+            --yt-playlist UUvgOmL0dKeJPrhEDgeFhvRw \
+            --newest ${{ github.event.inputs.newest }}
+
+      - name: Commit DB to repo
+        if: always()
+        run: |
+          if [ ! -f data/channel_7.db ]; then echo "no DB"; exit 0; fi
+          cp data/channel_7.db /tmp/channel_7_new.db
+          git fetch origin main
+          git checkout -B main origin/main
+          cp /tmp/channel_7_new.db data/channel_7.db
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -f data/channel_7.db
+          if ! git diff --staged --quiet; then
+            git commit -m "dedup: mark existing YouTube uploads as posted (channel_7) [skip ci]"
+            for i in 1 2 3; do
+              git push origin main && break
+              git fetch origin main; git checkout -B main origin/main
+              cp /tmp/channel_7_new.db data/channel_7.db
+              git add -f data/channel_7.db
+              git diff --staged --quiet && break
+              git commit -m "dedup: mark existing YouTube uploads as posted (channel_7) [skip ci]"
+            done
+          else
+            echo "No DB changes to commit"
+          fi
