@@ -26,5 +26,5 @@ channels:
     # is small (~74 videos) so scanning all of them is cheap and complete.
     youtube_uploads_playlist: "UUvgOmL0dKeJPrhEDgeFhvRw"
     slot_publish_times_utc:
-      1: "15:00"   # PUBLIC at 8 PM PKT (UTC+5) — USA audience
-      2: "17:00"   # PUBLIC at 10 PM PKT (UTC+5)
+      1: "08:00"   # PUBLIC at 6 PM AEST (AU)
+      2: "10:00"   # PUBLIC at 8 PM AEST (AU)
